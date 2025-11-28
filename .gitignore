@@ -28,6 +28,7 @@ build/
 dist/
 *.egg-info/
 .eggs/
+src/thorlab_loader.egg-info/
 
 # ------------------------------
 # pytest / test cache

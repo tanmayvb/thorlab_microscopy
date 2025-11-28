@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import logging
-import sys
 import threading
 import time
+import sys
 from pathlib import Path
-
 from thorlab_loader.builder import ThorlabBuilder
-from thorlab_loader.utils import find_tiff_files
-from thorlab_loader.tiff_writer import save_ome_tiff
-
+from thorlab_loader.utils import log_info, log_done, log_warn, log_error
 
 # -----------------------------
 # Colored Logging Helpers
@@ -42,7 +39,6 @@ def log_warn(msg):
 def log_error(msg):
     logging.error(f"\033[91m[ERROR]\033[0m {msg}")
 
-
 # -----------------------------
 # Spinner for running indication
 # -----------------------------
@@ -73,157 +69,73 @@ class Spinner:
             self.thread.join()
 
 
-# -----------------------------
-# Argument Parser
-# -----------------------------
+
+
+
 def parse_args():
-    import textwrap
-
-    parser = argparse.ArgumentParser(
-        prog="Thorlabs Microscopy Converter",
-        description=(
-            "Convert Thorlabs microscopy TIFF stacks + Experiment.xml "
-            "into a clean OME-TIFF file."
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=textwrap.dedent(
-            """
-            Examples:
-              Convert all TIFFs in folder:
-                python run.py -i InFile/bead_001 -o out/output.ome.tif
-
-              Debug mode:
-                python run.py -i raw/ -o out/out.ome.tif --debug
-
-              Dry-run (no output file):
-                python run.py -i raw/ --dry-run
-            """
-        ),
-    )
+    parser = argparse.ArgumentParser(description="Process Thorlabs TIFF folder (Experiment.xml required)")
 
     parser.add_argument(
-        "-i", "--input",
-        required=True,
-        help="Input TIFF file OR folder containing TIFF files."
+        "--tiff_dir", "-i", 
+        required=True, 
+        help="Folder containing TIFF files"
     )
-
     parser.add_argument(
-        "-o", "--output",
-        required=False,
-        default="output.ome.tif",
-        help="Output OME-TIFF filename (default: output.ome.tif)"
+        "--xml", "-x", 
+        required=True, 
+        help="Experiment.xml path (required)"
     )
-
     parser.add_argument(
-        "-x", "--xml",
-        required=False,
-        help="Path to Experiment.xml (optional if inside input folder)."
+        "--output_dir", "-o", 
+        required=True, 
+        help="Output directory for generated TIFFs"
     )
-
     parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Enable verbose logging."
+        "--save_raw", 
+        action="store_true", 
+        help="Also save plain multi-page TIFF alongside OME"
     )
-
+    parser.add_argument(
+        "--verbose", "-v", 
+        action="store_true", 
+        help="Verbose logs"
+    )
     parser.add_argument(
         "-d", "--debug",
         action="store_true",
         help="Enable debug logging."
     )
-
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Load data + metadata but DO NOT save output file."
     )
-
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Overwrite output file if it already exists."
-    )
-
     return parser.parse_args()
 
-
-# -----------------------------
-# Main
-# -----------------------------
 def main():
     print("\033[94m" + "#" * 100 + "\033[0m")
     args = parse_args()
+    #logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(asctime)s - %(message)s")
     setup_logging(args)
-
-    input_path = Path(args.input).expanduser().resolve()
-
-    if not input_path.exists():
-        log_error(f"Input does not exist: {input_path}")
-        sys.exit(1)
-
-    # -------------------------
-    # TIFF detection
-    # -------------------------
-    if input_path.is_dir():
-        tiff_paths = find_tiff_files(input_path)
-        if not tiff_paths:
-            log_error(f"No TIFF files detected in folder: {input_path}")
-            sys.exit(1)
-        log_info(f"Found {len(tiff_paths)} TIFF files.")
-    else:
-        # single TIFF
-        tiff_paths = [input_path]
-
-    # -------------------------
-    # XML detection
-    # -------------------------
-    xml_path = None
-    if args.xml:
-        xml_path = Path(args.xml).expanduser().resolve()
-        if not xml_path.exists():
-            log_error(f"XML file not found: {xml_path}")
-            sys.exit(1)
-    else:
-        # try auto-locate in folder
-        possible = list(input_path.parent.glob("Experiment.xml"))
-        if possible:
-            xml_path = possible[0]
-            log_info(f"Auto-detected XML: {xml_path}")
-        else:
-            log_warn("No Experiment.xml found — continuing without metadata.")
-
-    # -------------------------
-    # Load Data with spinner
-    # -------------------------
     spinner = Spinner("Loading TIFFs")
     spinner.start()
-    try:
-        builder = ThorlabBuilder(
-            tiff_paths=tiff_paths,
-            xml_path=xml_path
-        )
-        image_data = builder.load()
-        metadata = builder.meta
-    finally:
-        spinner.stop()
+    tiff_dir = Path(args.tiff_dir).expanduser().resolve()
+    xml_path = Path(args.xml).expanduser().resolve()
+    out_dir = Path(args.output_dir).expanduser().resolve()
+    spinner.stop()
 
-    log_info(f"Loaded image stack → shape={image_data.shape}")
+    tiff_files = sorted([p for p in tiff_dir.glob("Chan*.tif")])
+    print(f"[INFO] Loaded {len(tiff_files)} Chan*.tif files")
 
+    builder = ThorlabBuilder(str(tiff_dir), str(xml_path))
+    saved = builder.run_and_save(str(out_dir), save_raw=args.save_raw)
     if args.dry_run:
         log_info("Dry-run requested → skipping save.")
         print("Metadata summary:")
         print(metadata)
         return
 
-    out_path = Path(args.output).expanduser().resolve()
-    if out_path.exists() and not args.overwrite:
-        log_error(f"Output file exists: {out_path} (use --overwrite)")
-        sys.exit(1)
-
-    log_info(f"Saving OME-TIFF → {out_path}")
-    save_ome_tiff(out_path, image_data, metadata)
-    log_done(f"Saved: {out_path}")
-
+    log_done(f"Saved {len(saved)} files to {out_dir}")
     print("\033[94m" + "#" * 100 + "\033[0m")
 
 if __name__ == "__main__":
