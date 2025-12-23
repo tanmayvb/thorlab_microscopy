@@ -123,7 +123,9 @@ def download_and_extract_drive_folder(
         download_zip(service, f["id"], zip_path)
 
         dataset_name = f["name"].replace(".zip", "")
-        dataset_extract_dir = extracted_root / dataset_name
+        #dataset_extract_dir = extracted_root / dataset_name
+        dataset_extract_dir = extracted_root
+        print(f"dir Name {dataset_extract_dir}")
         dataset_extract_dir.mkdir(exist_ok=True)
 
         print(f"[INFO] Extracting → {dataset_extract_dir}")
