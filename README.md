@@ -132,7 +132,7 @@ Credentials and tokens **Must NOT be Committed**.
 Add credentials/ to .gitignore.
 
 
-**Testing: The test suite is organized into three levels.
+**Testing: The test suite is organized into three levels.**
 
 
 1. Unit tests (default)
